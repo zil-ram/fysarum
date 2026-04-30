@@ -1,0 +1,7 @@
+[workspace]
+members = ["crates/fysarum_compute",
+    "crates/fysarum_hardware", 
+    "crates/fysarum_query",
+    "crates/fysarum_storage",
+]
+resolver = "2"

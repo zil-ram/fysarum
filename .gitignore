@@ -1,0 +1,8 @@
+/target/
+.cursor/
+
+*.fys
+*.csv
+*.json
+
+.DS_Store

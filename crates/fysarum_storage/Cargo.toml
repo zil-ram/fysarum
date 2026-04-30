@@ -1,0 +1,9 @@
+[package]
+name = "fysarum_storage"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+memmap2 = "0.9"    # For cross-platform zero-copy OS page mapping
+bytemuck = { version = "1.14", features = ["derive"] } # For safe, zero-cost byte casting
+thiserror = "1.0"  # Ergonomic error handling

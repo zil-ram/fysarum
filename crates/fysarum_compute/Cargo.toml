@@ -1,0 +1,12 @@
+[package]
+name = "fysarum_compute"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Links to our zero-copy memory arenas
+fysarum_storage = { path = "../fysarum_storage" }
+
+# Provides the high-performance, lock-free channels (unbounded, Sender, Receiver) 
+# used to route data between our main thread and the Actor worker threads.
+crossbeam = "0.8"

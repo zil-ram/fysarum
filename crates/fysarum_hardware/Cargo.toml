@@ -1,0 +1,8 @@
+[package]
+name = "fysarum_hardware"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+io-uring = "0.6" # The raw Linux kernel asynchronous I/O bindings
+libc = "0.2"     # Required for OS-level file descriptors and error codes

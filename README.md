@@ -8,7 +8,7 @@ By abandoning relational models, columnar files, and centralized query planners,
 
 Tradeoffs and Architecture Decisions
 
-Fysarum trades traditional database durability, container isolation, and strict memory protection for absolute hardware performance. It is designed for temporary massive datasets rather than general persistent storage. Current memory mapping requires datasets to fit within RAM to avoid blocking page faults. The future addition of io_uring prefetching and Write Ahead Logging will bridge the gap between experimental speed and production resilience.
+Fysarum features a toggleable physics engine. Users can disable the Write Ahead Log (WAL) for absolute hardware performance and zero copy RAM speeds, or enable it for strict disk durability. While current memory mapping previously required datasets to fit within RAM to avoid blocking page faults, Fysarum now utilizes asynchronous kernel prefetching (madvise) to stream data seamlessly from NVMe drives to the L1 cache.
 
 The Architecture
 
@@ -26,11 +26,13 @@ Abandons DAG stages and JVM Garbage Collection. Fysarum compiles queries into lo
 Layer 4: Topological Query Builder
 Hides the brutal complexity of the lower layers behind an elegant, chained Rust API.
 
-Bare Metal Vector Engine for AI
+Dual Engine Physics
 
-Because Fysarum's foundational data structure (VertexSimplex) relies on mathematical state vectors rather than standard string rows, it natively acts as an ultra low latency Vector Database.
+Ships with two configurable storage paradigms:
 
-For AI engineers building local LLM agents, RAG (Retrieval Augmented Generation) pipelines, or semantic search applications, Fysarum can map billions of embedding vectors directly to the CPU's L1 cache, enabling sub millisecond similarity searches that traditional cloud vector databases cannot mathematically achieve.
+Bare Metal Vector Mode (AI / Quant Finance): Bypasses the Write Ahead Log and uses hardcoded mathematical structures (VertexSimplex) for ultra low latency Vector Similarity Searches and quantitative math.
+
+Dynamic Schema Mode (Enterprise / E-Commerce): Enables the Write Ahead Log for crash resilience and allows the injection of unstructured raw bytes (Strings, Booleans) via the Dynamic Schema Registry.
 
 Getting Started
 
@@ -40,44 +42,47 @@ OS: Linux (Kernel 5.1+ required for io_uring support).
 
 Compiler: Rust toolchain.
 
-Usage in your own projects
+Cargo dependency
 
-To use Fysarum in your own data pipelines, add it to your Cargo.toml:
+Declare the crate in Cargo.toml (git source shown below):
 
-```toml
 [dependencies]
-fysarum_query = { git = "[https://github.com/zil-ram/fysarum](https://github.com/zil-ram/fysarum)" }
-```
+fysarum_query = { git = "[https://github.com/zil-ram/fysarum] }
 
 
 1. Ingesting Real Data (CSV/JSON)
 
-Fysarum only reads the .fys physical format. You must run a one time ETL using the built in importer to translate your legacy files (CSV/JSON) into the zero copy mesh:
+Fysarum reads the .fys on-disk layout. CSV/JSON ingestion runs through the built-in importer, which writes that layout:
 
-```rust
-use fysarum_query::engine::FysarumEngine;
+use fysarum_query::engine::{FysarumEngine, EngineConfig};
 use fysarum_query::importer::DataImporter;
 
 fn main() -> std::io::Result<()> {
-    let mut engine = FysarumEngine::open_or_create("./data.fys", 1_000_000)?;
+    // Enable the WAL for safe data ingestion
+    let config = EngineConfig { wal_enabled: true, dynamic_mode: false };
+    let mut engine = FysarumEngine::open_with_config("./data.fys", 1_000_000, config)?;
     
     // Convert a standard CSV into a zero copy NVMe map
     DataImporter::ingest_csv(&mut engine, "my_data.csv", 0)?;
     Ok(())
 }
-```
 
 
 2. High Speed Query Builder
 
-Once data is mapped, querying occurs at hardware speeds using the chained Query Builder.
+Fysarum is booted using the EngineConfig, allowing you to toggle durability and schema modes on the fly.
 
-```rust
-use fysarum_query::engine::{FysarumEngine, FilterCondition};
+use fysarum_query::engine::{FysarumEngine, EngineConfig, FilterCondition};
 
 fn main() -> std::io::Result<()> {
+    // Toggle pure speed vs durability
+    let config = EngineConfig {
+        wal_enabled: false,  // Danger Mode: Instant writes, no disk bottleneck
+        dynamic_mode: false, // Vector Mode: Hardcoded f64 math only
+    };
+
     // Maps the file with zero serialization
-    let engine = FysarumEngine::open_or_create("./data.fys", 1_000_000)?;
+    let engine = FysarumEngine::open_with_config("./data.fys", 1_000_000, config)?;
     
     // Calculates the sum of column 0, filtering for rows where column 1 > 25,000,000.
     // Compiles down to hardware level branching and lock free Atomics.
@@ -89,7 +94,6 @@ fn main() -> std::io::Result<()> {
     println!("Result: {}", result);
     Ok(())
 }
-```
 
 
 Open Source Core Roadmap
@@ -102,9 +106,12 @@ Open Source Core Roadmap
 
 [x] Chained Query Builder
 
+[x] Write Ahead Log (WAL) Crash Resilience
+
+[x] Dynamic Schema Registry
+
 [ ] Distributed RDMA Networking (Multi Node Mesh)
 
-[ ] Write Ahead Log (WAL) Crash Resilience
+[ ] Evaluating unstructured bytes
 
-
-Fysarum is open-source and contributions are welcome. Pls for feedback as well. :D
+Fysarum is open-source and contributions are welcome. Pls reach out for feedback as well. :D

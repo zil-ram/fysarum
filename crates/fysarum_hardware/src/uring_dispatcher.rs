@@ -1,8 +1,6 @@
-//! This module implements the `UringDispatcher`, the beating heart of the 
-//! Fysarum storage I/O. It bypasses standard blocking sys-calls and the OS 
-//! page cache. By mapping memory directly to the kernel's submission and 
-//! completion queues, we achieve millions of IOPS per core with zero 
-//! context-switching overhead.
+//! `UringDispatcher`: io_uring-backed submission/completion for storage I/O.
+//! Submissions bypass blocking syscalls and the page cache; completion events
+//! are polled from the kernel ring with minimal context-switch overhead.
 
 use io_uring::{opcode, squeue, types, IoUring};
 use std::os::unix::io::RawFd;
@@ -17,7 +15,6 @@ const RING_SIZE: u32 = 4096;
 pub struct IoToken(pub u64);
 
 /// The UringDispatcher runs thread-locally. It never uses Mutexes or RwLocks.
-/// It represents a single, autonomous "vein" of the Physarum mesh.
 pub struct UringDispatcher {
     ring: IoUring,
     in_flight_count: usize,
@@ -26,9 +23,7 @@ pub struct UringDispatcher {
 impl UringDispatcher {
     /// Initializes a new io_uring instance.
     pub fn new() -> std::io::Result<Self> {
-        // We initialize the ring. In a production build, we would use
-        // `SetupFlags::SQPOLL` to have the kernel spawn a dedicated polling thread,
-        // meaning we don't even need to make a syscall to submit I/O.
+        // Default ring setup; optional `SetupFlags::SQPOLL` would use a kernel polling thread for lower submit latency.
         let ring = IoUring::new(RING_SIZE)?;
         
         Ok(Self {
@@ -58,16 +53,14 @@ impl UringDispatcher {
         )
         .offset(offset)
         .build()
-        // We embed the Actor's token into the user_data field of the SQE.
-        // When the hardware finishes the read, it hands this exact token back.
+        // `user_data` carries `IoToken`; the matching CQE returns the same value.
         .user_data(token.0);
 
         self.push_to_sq(read_e)?;
         Ok(())
     }
 
-    /// Submits a zero-copy write request. 
-    /// For Physarum, these writes are purely appending to our CRDT state lattices.
+    /// Submits a zero-copy write request (append-oriented storage layout).
     pub unsafe fn submit_write(
         &mut self,
         fd: RawFd,
@@ -92,14 +85,14 @@ impl UringDispatcher {
     fn push_to_sq(&mut self, entry: squeue::Entry) -> std::io::Result<()> {
         let mut sq = self.ring.submission();
         
-        // If the queue is full, we must submit to the kernel to clear space.
+        // Full SQ: submit to drain entries so `push` can succeed.
         if sq.is_full() {
             drop(sq); // Drop the lockless borrow to call submit
             self.ring.submit()?;
             sq = self.ring.submission();
         }
 
-        // SAFETY: We checked if the queue is full above.
+        // SAFETY: `is_full` was handled above; `push` is only called when space is available.
         unsafe { sq.push(&entry).map_err(|_| std::io::Error::from_raw_os_error(libc::EBUSY))? };
         self.in_flight_count += 1;
         Ok(())
@@ -125,7 +118,7 @@ impl UringDispatcher {
             self.in_flight_count -= 1;
         }
 
-        // We clear the completed entries so the hardware can reuse the ring slots.
+        // `sync` retires CQEs so completion ring slots can be reused.
         cq.sync();
         completions
     }

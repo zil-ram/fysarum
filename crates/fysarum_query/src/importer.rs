@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-/// A standard schema that incoming JSON/CSV data must map to.
+/// Row shape produced when deserializing JSON Lines or CSV records for ingestion.
 #[derive(Deserialize, Debug)]
 pub struct RawDataRow {
     pub id: u64,
